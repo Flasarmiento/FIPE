@@ -260,6 +260,11 @@
             <option value="2026">Base 2026</option>
             <option value="2025">Base 2025</option>
           </select>
+          <select id="fNivel" onchange="renderAll()">
+            <option value="todos">Nivel I y II</option>
+            <option value="I">Nivel I</option>
+            <option value="II">Nivel II</option>
+          </select>
         </div>
         <span class="ts" id="ts">—</span>
         <button onclick="loadAll(true)">↻ Actualizar datos</button>
@@ -590,7 +595,8 @@ const SHEETS = {
   jornadas: '1-HqzeU7FO8qAsDrxfYty7q-9VjG2rl7nDKPuySL-inw',
   jornadas2025: '1jU0pBxX_qMQLdzfR9S1iMUSLM211TWXYXVScqAKbJ9U',
   fotoproducto: '1DNrZGK9aHyyaKKyYoxAoC0wWscLhM89ax_q6FHxLFlk',
-  coworking: '1B-oXvbFaXfjdvNnXp0VeqDIzNB57bvy_'
+  coworking: '1B-oXvbFaXfjdvNnXp0VeqDIzNB57bvy_',
+  nivel2: '1Yphv3dg5X3LaMrn3zjBrEOpUogKuKF8H7T3cbjG34Mc'
 };
 const GATE_PASSCODE = 'fipe2026'; // cambiá esta clave antes de compartir el link con el equipo
 
@@ -677,6 +683,7 @@ function parseBase(sheet, anio){
     const grupoTxt = (r[idx.grupo]||'Sin grupo').toString().trim() || 'Sin grupo';
     out.push({
       anio,
+      nivel: 'I',
       turno: calcTurno(grupoTxt),
       nombre, apellido,
       dni: (r[idx.dni]||'').toString(),
@@ -698,6 +705,64 @@ function parseBase(sheet, anio){
       sector: (r[idx.sector]||'Sin dato').toString().trim() || 'Sin dato',
       aprender: (r[idx.aprender]||'').toString(),
       lograr: (r[idx.lograr]||'').toString()
+    });
+  });
+  return out;
+}
+
+function parseNivelII(sheet, anio){
+  const {cols, rows} = sheet;
+  const idx = {
+    apellido: colIndex(cols,'Apellido:','apellido'),
+    nombre: colIndex(cols,'Nombre:','nombre'),
+    dni: colIndex(cols,'DNI:','dni'),
+    email: colIndex(cols,'Correo electrónico:','correo'),
+    telefono: colIndex(cols,'Teléfono celular:','telefono'),
+    nacionalidad: colIndex(cols,'Nacionalidad','nacionalidad'),
+    etapa: colIndex(cols,'Etapa del emprendimiento:','etapa'),
+    genero: colIndex(cols,'Género','genero'),
+    comuna: colIndex(cols,'¿En qué comuna vivís?:','comuna'),
+    direccion: colIndex(cols,'Dirección','direccion'),
+    nombreEmp: colIndex(cols,"Nombre de tu emprendimiento (si ya tenés o si estás pensando uno) :",'nombre de tu emprendimiento'),
+    sector: colIndex(cols,'Sector del emprendimiento','sector'),
+    grupo: colIndex(cols,'Grupo','grupo'),
+    e1: colIndex(cols,'1 Encuentro'), e2: colIndex(cols,'2 Encuentro'), e3: colIndex(cols,'3 Encuentro'),
+    insignias: colIndex(cols,'Insignias')
+  };
+  const out = [];
+  rows.forEach(r=>{
+    const nombre = (r[idx.nombre]||'').toString().trim();
+    const apellido = (r[idx.apellido]||'').toString().trim();
+    if(!nombre && !apellido) return;
+    const asis = [r[idx.e1],r[idx.e2],r[idx.e3]].map(v=>(v||'').toString().trim());
+    const presentes = asis.filter(v=>v.toLowerCase()==='presente').length;
+    const grupoRaw = (r[idx.grupo]||'Sin grupo').toString().trim() || 'Sin grupo';
+    const grupoTxt = grupoRaw.replace(/^Nivel\s*II\s*\|\s*/i, 'Nivel II — ');
+    const etapaTxt = (r[idx.etapa]||'').toString().trim();
+    out.push({
+      anio,
+      nivel: 'II',
+      turno: calcTurno(grupoTxt),
+      nombre, apellido,
+      dni: (r[idx.dni]||'').toString(),
+      email: (r[idx.email]||'').toString(),
+      telefono: (r[idx.telefono]||'').toString(),
+      comuna: (r[idx.comuna]||'Sin dato').toString().trim() || 'Sin dato',
+      etapa: etapaTxt || 'Sin dato',
+      grupo: grupoTxt,
+      genero: (r[idx.genero]||'').toString(),
+      nacionalidad: (r[idx.nacionalidad]||'').toString(),
+      asistencia: asis,
+      presentes,
+      insignias: Number(r[idx.insignias]) || presentes,
+      egresado: presentes >= 2,
+      direccion: (r[idx.direccion]||'').toString(),
+      nombreEmp: (r[idx.nombreEmp]||'').toString(),
+      redes: '',
+      enMarcha: etapaTxt.toLowerCase().includes('ya tengo el emprendimiento en marcha') ? 'Sí' : '',
+      sector: (r[idx.sector]||'Sin dato').toString().trim() || 'Sin dato',
+      aprender: '',
+      lograr: ''
     });
   });
   return out;
@@ -845,18 +910,20 @@ async function loadAll(manual){
   document.getElementById('loadingBox').style.display='block';
   document.getElementById('errBox').innerHTML='';
   try{
-    const [base2026Sheet, base2025Sheet, jorn2026Sheet, jorn2025Sheet, foto2026Sheet, foto2025Sheet, infraSheet] = await Promise.all([
+    const [base2026Sheet, base2025Sheet, jorn2026Sheet, jorn2025Sheet, foto2026Sheet, foto2025Sheet, infraSheet, nivel2Sheet] = await Promise.all([
       fetchSheet(SHEETS.base2026, 'handleBase2026'),
       fetchSheet(SHEETS.base2025, 'handleBase2025'),
       fetchSheet(SHEETS.jornadas, 'handleJorn2026'),
       fetchSheet(SHEETS.jornadas2025, 'handleJorn2025'),
       fetchSheet(SHEETS.fotoproducto, 'handleFoto2026', 'Fotoproducto 2026'),
       fetchSheet(SHEETS.fotoproducto, 'handleFoto2025', 'Fotoproducto 2025'),
-      fetchSheet(SHEETS.coworking, 'handleInfra', 'Infraestructura y Horarios', true)
+      fetchSheet(SHEETS.coworking, 'handleInfra', 'Infraestructura y Horarios', true),
+      fetchSheet(SHEETS.nivel2, 'handleNivel2')
     ]);
     DATA.base = [
       ...parseBase(base2026Sheet, '2026'),
-      ...parseBase(base2025Sheet, '2025')
+      ...parseBase(base2025Sheet, '2025'),
+      ...parseNivelII(nivel2Sheet, '2026')
     ];
     DATA.jorn = [
       ...parseJornadas(jorn2026Sheet, '2026'),
@@ -897,8 +964,12 @@ function barList(container, data, max){
 
 function baseFiltered(){
   const anio = document.getElementById('fAnio').value;
-  if(anio==='todas') return DATA.base;
-  return DATA.base.filter(p=>p.anio===anio);
+  const nivel = document.getElementById('fNivel').value;
+  return DATA.base.filter(p=>{
+    if(anio!=='todas' && p.anio!==anio) return false;
+    if(nivel!=='todos' && p.nivel!==nivel) return false;
+    return true;
+  });
 }
 
 function comunaBreakdown(base){
@@ -1103,7 +1174,7 @@ function renderTable(resetPage){
       <td>${p.comuna}</td>
       <td>${(p.grupo.split(':')[0]||p.grupo)}</td>
       <td>${p.turno}</td>
-      <td>${p.presentes}/5</td>
+      <td>${p.presentes}/${p.asistencia.length}</td>
       <td>${estado}</td>
     </tr>`;
   }).join('');
