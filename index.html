@@ -219,7 +219,7 @@
   .rk-table tbody tr{cursor:default;}
   .rk-table td.num,.rk-table th.num{text-align:right;font-variant-numeric:tabular-nums;}
   .rk-table td.pct{color:var(--slate-light);font-size:12px;text-align:right;width:52px;}
-  .rk-table td.barcell{width:34%;min-width:140px;}
+  .rk-table td.barcell{width:45%;min-width:140px;}
   .rk-table .tot{font-weight:700;font-family:'Sora',sans-serif;}
   .rk-pos{display:inline-flex;width:24px;height:24px;border-radius:50%;background:var(--blush);color:var(--coral-dark);
     font-weight:700;font-size:11.5px;align-items:center;justify-content:center;font-family:'Sora',sans-serif;}
@@ -414,16 +414,14 @@
       <div class="panel">
         <h3>Ranking de género <span class="tag" id="genTag"></span></h3>
         <div class="gen-cards" id="genCards"></div>
-        <div class="rk-legend" id="genLegend"></div>
         <div class="table-wrap"><table class="rk-table" id="genTable"></table></div>
       </div>
       <div class="panel">
         <h3>Ranking de nacionalidades <span class="tag" id="nacTag"></span></h3>
-        <div class="rk-legend" id="nacLegend"></div>
         <div class="table-wrap"><table class="rk-table" id="nacTable"></table></div>
         <button class="rk-more" id="nacMore" onclick="nacVerTodas=!nacVerTodas;renderPerfil();"></button>
       </div>
-      <p style="font-size:12px;color:var(--slate-light);margin:0;">Los valores se unifican automáticamente: «argentino», «Argentina», «ARGENTINA » cuentan como Argentina. Respeta el filtro de Nivel; el de Base elige qué años se comparan.</p>
+      <p style="font-size:12px;color:var(--slate-light);margin:0;">Por defecto suma las bases 2025 y 2026; para ver un solo año, elegilo en el filtro de Base de arriba. Los valores se unifican automáticamente: «argentino», «Argentina», «ARGENTINA » cuentan como Argentina.</p>
     </section>
 
     <section class="view" id="view-jornadas">
@@ -1510,81 +1508,61 @@ function normalizarGenero(v){
   return tituloCaso(t);
 }
 
-// Devuelve filas [{nombre, porAnio:{2025:n,2026:n}, total}] ordenadas por total
-function rankingPor(base, normalizador, campo, anios){
+// Devuelve filas [{nombre, total}] ordenadas por cantidad ("Sin dato" siempre al final)
+function rankingPor(base, normalizador, campo){
   const m = {};
   base.forEach(p=>{
     const k = normalizador(p[campo]);
-    if(!m[k]) m[k] = { nombre:k, porAnio:{}, total:0 };
-    m[k].porAnio[p.anio] = (m[k].porAnio[p.anio]||0) + 1;
-    m[k].total++;
+    m[k] = (m[k]||0) + 1;
   });
-  return Object.values(m).sort((a,b)=>{
-    if((a.nombre==='Sin dato') !== (b.nombre==='Sin dato')) return a.nombre==='Sin dato' ? 1 : -1; // "Sin dato" siempre al final
+  return Object.entries(m).map(([nombre,total])=>({nombre,total})).sort((a,b)=>{
+    if((a.nombre==='Sin dato') !== (b.nombre==='Sin dato')) return a.nombre==='Sin dato' ? 1 : -1;
     return b.total - a.total || a.nombre.localeCompare(b.nombre,'es');
   });
 }
 
-function aniosPerfil(){
-  const a = document.getElementById('fAnio').value;
-  return a === 'todas' ? ['2025','2026'] : [a];
-}
+function pctTxt(n, tot){ return tot ? (n/tot*100).toFixed(1).replace('.',',') + '%' : '—'; }
 
-function tablaRanking(tabla, filas, anios, totalesAnio){
-  const comparar = anios.length > 1;
-  const maxVal = Math.max(1, ...filas.map(f => Math.max(...anios.map(a => f.porAnio[a]||0))));
-  let h = '<thead><tr><th>#</th><th></th>';
-  anios.forEach(a => { h += `<th class="num">${a}</th><th class="num">%</th>`; });
-  if(comparar) h += '<th class="num">Total</th><th class="num">Variación</th>';
-  h += '<th>Comparación</th></tr></thead><tbody>';
+function tablaRanking(tabla, filas, total){
+  const maxVal = Math.max(1, ...filas.map(f => f.total));
+  let h = '<thead><tr><th>#</th><th></th><th class="num">Personas</th><th class="num">%</th><th></th></tr></thead><tbody>';
   let pos = 0;
   filas.forEach(f=>{
     const sinDato = f.nombre === 'Sin dato';
     if(!sinDato) pos++;
-    h += `<tr><td>${sinDato ? '' : `<span class="rk-pos">${pos}</span>`}</td><td style="font-weight:600;">${f.nombre}</td>`;
-    anios.forEach(a=>{
-      const n = f.porAnio[a]||0, tot = totalesAnio[a]||0;
-      h += `<td class="num">${n}</td><td class="pct">${tot ? (n/tot*100).toFixed(1).replace('.',',')+'%' : '—'}</td>`;
-    });
-    if(comparar){
-      const a = f.porAnio['2025']||0, b = f.porAnio['2026']||0, d = b - a;
-      const cls = d>0 ? 'up' : d<0 ? 'down' : 'eq';
-      h += `<td class="num tot">${f.total}</td><td class="num"><span class="rk-delta ${cls}">${d>0?'▲ +':d<0?'▼ ':'= '}${d===0?'':d}</span></td>`;
-    }
-    h += '<td class="barcell"><div class="rk-bars">' + anios.map(a =>
-      `<div class="rk-bar"><i class="c${a.slice(2)}" style="width:${(f.porAnio[a]||0)/maxVal*100}%"></i></div>`).join('') + '</div></td></tr>';
+    h += `<tr><td>${sinDato ? '' : `<span class="rk-pos">${pos}</span>`}</td>
+      <td style="font-weight:600;${sinDato?'color:var(--slate-light);':''}">${f.nombre}</td>
+      <td class="num tot">${f.total}</td><td class="pct">${pctTxt(f.total,total)}</td>
+      <td class="barcell"><div class="rk-bar"><i class="${sinDato?'c25':'c26'}" style="width:${f.total/maxVal*100}%"></i></div></td></tr>`;
   });
   tabla.innerHTML = h + '</tbody>';
 }
 
-function leyendaAnios(el, anios, totalesAnio){
-  el.innerHTML = anios.map(a => `<span><i class="c${a.slice(2)}"></i>Base ${a} · ${totalesAnio[a]||0} personas</span>`).join('');
+function etiquetaBase(){
+  const a = document.getElementById('fAnio').value;
+  return a === 'todas' ? 'Bases 2025 + 2026' : 'Base ' + a;
 }
 
 function renderPerfil(){
   if(!document.getElementById('genTable')) return;
-  const anios = aniosPerfil();
-  const base = baseFiltered().filter(p => anios.includes(p.anio));
-  const totalesAnio = {};
-  base.forEach(p => { totalesAnio[p.anio] = (totalesAnio[p.anio]||0) + 1; });
+  const base = baseFiltered();   // respeta los filtros de Base y Nivel de arriba
+  const total = base.length;
 
   // Género
-  const gen = rankingPor(base, normalizarGenero, 'genero', anios);
-  document.getElementById('genTag').textContent = `${base.length} personas`;
-  document.getElementById('genCards').innerHTML = gen.filter(g => g.nombre !== 'Sin dato').map(g =>
-    `<div class="kpi"><div class="num">${base.length ? Math.round(g.total/base.length*100) : 0}%</div>
+  const gen = rankingPor(base, normalizarGenero, 'genero');
+  document.getElementById('genTag').textContent = `${etiquetaBase()} · ${total} personas`;
+  document.getElementById('genCards').innerHTML = gen.map(g =>
+    `<div class="kpi"><div class="num" ${g.nombre==='Sin dato'?'style="color:var(--slate-light)"':''}>${total ? Math.round(g.total/total*100) : 0}%</div>
      <div class="label">${g.nombre} · ${g.total}</div></div>`).join('');
-  leyendaAnios(document.getElementById('genLegend'), anios, totalesAnio);
-  tablaRanking(document.getElementById('genTable'), gen, anios, totalesAnio);
+  tablaRanking(document.getElementById('genTable'), gen, total);
 
   // Nacionalidades
-  const nac = rankingPor(base, normalizarNacionalidad, 'nacionalidad', anios);
+  const nac = rankingPor(base, normalizarNacionalidad, 'nacionalidad');
   const conDato = nac.filter(n => n.nombre !== 'Sin dato');
   const LIMITE = 10;
   const visibles = nacVerTodas ? nac : [...conDato.slice(0, LIMITE), ...nac.filter(n => n.nombre === 'Sin dato')];
-  document.getElementById('nacTag').textContent = `${conDato.length} nacionalidades`;
-  leyendaAnios(document.getElementById('nacLegend'), anios, totalesAnio);
-  tablaRanking(document.getElementById('nacTable'), visibles, anios, totalesAnio);
+  document.getElementById('nacTag').textContent = `${etiquetaBase()} · ${conDato.length} nacionalidades`;
+  tablaRanking(document.getElementById('nacTable'), visibles, total);
   const btn = document.getElementById('nacMore');
   btn.style.display = conDato.length > LIMITE ? 'inline-block' : 'none';
   btn.textContent = nacVerTodas ? 'Ver solo el top 10' : `Ver las ${conDato.length} nacionalidades`;
@@ -1596,7 +1574,7 @@ const titles = {
   comunas:['Comunas','Distribución geográfica de los inscriptos'],
   grupos:['Grupos y horarios','Asistencia por comisión'],
   participantes:['Participantes','Buscador y ficha individual'],
-  perfil:['Nacionalidad y género','Ranking comparativo de las bases 2025 y 2026'],
+  perfil:['Nacionalidad y género','Ranking de inscriptos por nacionalidad y género'],
   jornadas:['Jornadas complementarias','Inscripciones y ranking de popularidad'],
   fotoproducto:['Fotoproducto','Sesiones de fotos de producto para emprendedores'],
   coworking:['Coworking Productivo','Postulantes, proyectos e infraestructura'],
