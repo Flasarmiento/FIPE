@@ -671,6 +671,53 @@ function fetchSheet(sheetId, handlerName, sheetName, rawHeaders){
   });
 }
 
+/* Lectura paginada para formularios extensos: evita aceptar una respuesta parcial. */
+async function fetchJornadas2026Completo(){
+  const sheetId = SHEETS.jornadas;
+  const sheetName = 'Respuestas de formulario 1';
+  const PAGE = 400;
+  const allRows = [];
+  let cols = null;
+  for(let offset=0; offset<20000; offset+=PAGE){
+    const page = await new Promise((resolve,reject)=>{
+      const callback = 'fipeJorn2026Page_' + offset;
+      const script = document.createElement('script');
+      let done = false;
+      const timer = setTimeout(()=>finish(new Error('Tiempo de espera agotado en jornadas 2026, bloque ' + offset)),20000);
+      function finish(err, result){
+        if(done) return;
+        done = true;
+        clearTimeout(timer);
+        delete window[callback];
+        script.remove();
+        if(err) reject(err); else resolve(result);
+      }
+      window[callback] = json=>{
+        try{
+          if(json.status === 'error') throw new Error((json.errors||[]).map(e=>e.message).join('; ') || 'Error de Google Sheets');
+          const table = json.table;
+          if(!table || !table.cols || !table.rows) throw new Error('Respuesta sin tabla');
+          finish(null, {
+            cols: table.cols.map(c=>(c.label||'').trim()),
+            rows: table.rows.map(r=>r.c.map(c=>c ? (c.v!==null && c.v!==undefined ? c.v : (c.f||'')) : ''))
+          });
+        }catch(e){finish(e);}
+      };
+      const tq = encodeURIComponent('select * limit '+PAGE+' offset '+offset);
+      const tqx = encodeURIComponent('out:json;responseHandler:'+callback);
+      script.src = `https://docs.google.com/spreadsheets/d/${sheetId}/gviz/tq?sheet=${encodeURIComponent(sheetName)}&tq=${tq}&tqx=${tqx}&nocache=${Date.now()}`;
+      script.onerror = ()=>finish(new Error('No se pudo consultar Jornadas 2026 (bloque '+offset+').'));
+      document.body.appendChild(script);
+    });
+    if(cols===null) cols=page.cols;
+    if(page.rows.length===0) break;
+    allRows.push(...page.rows);
+    if(page.rows.length<PAGE) break;
+  }
+  if(!cols) throw new Error('No se recibió la estructura de Jornadas 2026.');
+  return {cols, rows:allRows};
+}
+
 function colIndex(cols, exact, fallback){
   let i = cols.findIndex(c => c.toLowerCase() === exact.toLowerCase());
   if(i === -1 && fallback) i = cols.findIndex(c => c.toLowerCase().includes(fallback.toLowerCase()));
@@ -977,7 +1024,7 @@ async function loadAll(manual){
     const fuentes = [
       ['Base 2026',               ()=>fetchSheet(SHEETS.base2026, 'handleBase2026', 'General')],
       ['Base 2025',               ()=>fetchSheet(SHEETS.base2025, 'handleBase2025', 'General')],
-      ['Jornadas 2026',           ()=>fetchSheet(SHEETS.jornadas, 'handleJorn2026', 'Respuestas de formulario 1')],
+      ['Jornadas 2026',           ()=>fetchJornadas2026Completo()],
       ['Jornadas 2025',           ()=>fetchSheet(SHEETS.jornadas2025, 'handleJorn2025')],
       ['Fotoproducto 2026',       ()=>fetchSheet(SHEETS.fotoproducto, 'handleFoto2026', 'Fotoproducto 2026')],
       ['Fotoproducto 2025',       ()=>fetchSheet(SHEETS.fotoproducto, 'handleFoto2025', 'Fotoproducto 2025')],
@@ -1004,6 +1051,9 @@ async function loadAll(manual){
       ...parseNivelII(nivel2Sheet, '2026')
     ];
     DATA.jorn = [];
+    if(jorn2026Sheet.rows.length < 100){
+      fallas.push('Jornadas 2026: Google Sheets devolvió solamente ' + jorn2026Sheet.rows.length + ' filas. La carga parece incompleta; verificá la pestaña y el acceso a la planilla.');
+    }
     for(const [jSheet, jYear] of [[jorn2026Sheet, '2026'], [jorn2025Sheet, '2025']]){
       try { DATA.jorn.push(...parseJornadas(jSheet, jYear)); }
       catch(e) { fallas.push('Jornadas ' + jYear + ': ' + e.message); }
