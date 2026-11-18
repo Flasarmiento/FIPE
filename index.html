@@ -817,6 +817,9 @@ function parseJornadas(sheet, anio){
     estado: colIndex(cols,'¿Estás cursando o cursaste la Formación Integral para el Emprendedorismo en el Centro de Simulación?','cursando o cursaste'),
     jornada: jornadaIdx
   };
+  if(idx.jornada === -1){
+    throw new Error('No se encontró la columna de selección de jornadas en la base ' + anio + '.');
+  }
   const out = [];
   rows.forEach(r=>{
     const jornada = (r[idx.jornada]||'').toString().trim();
@@ -974,7 +977,7 @@ async function loadAll(manual){
     const fuentes = [
       ['Base 2026',               ()=>fetchSheet(SHEETS.base2026, 'handleBase2026', 'General')],
       ['Base 2025',               ()=>fetchSheet(SHEETS.base2025, 'handleBase2025', 'General')],
-      ['Jornadas 2026',           ()=>fetchSheet(SHEETS.jornadas, 'handleJorn2026')],
+      ['Jornadas 2026',           ()=>fetchSheet(SHEETS.jornadas, 'handleJorn2026', 'Respuestas de formulario 1')],
       ['Jornadas 2025',           ()=>fetchSheet(SHEETS.jornadas2025, 'handleJorn2025')],
       ['Fotoproducto 2026',       ()=>fetchSheet(SHEETS.fotoproducto, 'handleFoto2026', 'Fotoproducto 2026')],
       ['Fotoproducto 2025',       ()=>fetchSheet(SHEETS.fotoproducto, 'handleFoto2025', 'Fotoproducto 2025')],
@@ -1000,16 +1003,20 @@ async function loadAll(manual){
       ...(resultados[1].status==='fulfilled' ? parseBase(base2025Sheet, '2025') : []),
       ...parseNivelII(nivel2Sheet, '2026')
     ];
-    DATA.jorn = [
-      ...parseJornadas(jorn2026Sheet, '2026'),
-      ...parseJornadas(jorn2025Sheet, '2025')
-    ];
+    DATA.jorn = [];
+    for(const [jSheet, jYear] of [[jorn2026Sheet, '2026'], [jorn2025Sheet, '2025']]){
+      try { DATA.jorn.push(...parseJornadas(jSheet, jYear)); }
+      catch(e) { fallas.push('Jornadas ' + jYear + ': ' + e.message); }
+    }
     DATA.foto = [
       ...parseFotoproducto(foto2026Sheet, '2026'),
       ...parseFotoproducto(foto2025Sheet, '2025')
     ];
     DATA.infra = parseInfraestructura(infraSheet);
     DATA.cwResumen = parseCwResumen(cwResumenSheet);
+    if(fallas.length){
+      document.getElementById('errBox').innerHTML = `<div class="errbox"><b>Atención: algunas fuentes no pudieron procesarse:</b> ${fallas.join('; ')}.</div>`;
+    }
     document.getElementById('loadingBox').style.display='none';
     document.getElementById('ts').textContent = 'Actualizado ' + new Date().toLocaleTimeString('es-AR',{hour:'2-digit',minute:'2-digit'});
     renderAll();
