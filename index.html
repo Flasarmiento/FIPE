@@ -708,6 +708,9 @@ function parseBase(sheet, anio){
     aprender: colIndex(cols,'¿Qué esperás aprender en esta formación?','esperás aprender'),
     lograr: colIndex(cols,'¿Qué esperás lograr con tu emprendimiento durante y después de la formación?','esperás lograr')
   };
+  const requeridas = ['apellido','nombre','e1','e2','e3','e4','e5','insignias'];
+  const faltantes = requeridas.filter(k => idx[k] < 0);
+  if(faltantes.length) throw new Error(`Base ${anio}: faltan columnas requeridas (${faltantes.join(', ')}). Revisá la pestaña General.`);
   const out = [];
   rows.forEach(r=>{
     const nombre = (r[idx.nombre]||'').toString().trim();
@@ -969,8 +972,8 @@ async function loadAll(manual){
   try{
     // Cada planilla se carga por separado: si una falla, las demás se muestran igual
     const fuentes = [
-      ['Base 2026',               ()=>fetchSheet(SHEETS.base2026, 'handleBase2026')],
-      ['Base 2025',               ()=>fetchSheet(SHEETS.base2025, 'handleBase2025')],
+      ['Base 2026',               ()=>fetchSheet(SHEETS.base2026, 'handleBase2026', 'General')],
+      ['Base 2025',               ()=>fetchSheet(SHEETS.base2025, 'handleBase2025', 'General')],
       ['Jornadas 2026',           ()=>fetchSheet(SHEETS.jornadas, 'handleJorn2026')],
       ['Jornadas 2025',           ()=>fetchSheet(SHEETS.jornadas2025, 'handleJorn2025')],
       ['Fotoproducto 2026',       ()=>fetchSheet(SHEETS.fotoproducto, 'handleFoto2026', 'Fotoproducto 2026')],
@@ -993,8 +996,8 @@ async function loadAll(manual){
       document.getElementById('errBox').innerHTML = `<div class="errbox"><b>Algunas planillas no cargaron:</b> ${fallas.join(', ')}.<br>El resto del tablero muestra datos actualizados. Revisá que esas planillas existan y tengan permiso "Cualquier usuario con el enlace puede ver".</div>`;
     }
     DATA.base = [
-      ...parseBase(base2026Sheet, '2026'),
-      ...parseBase(base2025Sheet, '2025'),
+      ...(resultados[0].status==='fulfilled' ? parseBase(base2026Sheet, '2026') : []),
+      ...(resultados[1].status==='fulfilled' ? parseBase(base2025Sheet, '2025') : []),
       ...parseNivelII(nivel2Sheet, '2026')
     ];
     DATA.jorn = [
