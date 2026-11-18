@@ -494,16 +494,16 @@
       </div>
       <div class="kpi-row kpi-row-5">
         <div class="kpi-hero" style="padding:18px;">
-          <div class="num" id="cwEspacios" style="font-size:32px;">12</div>
+          <div class="num" id="cwEspacios" style="font-size:32px;">—</div>
           <div class="label">Espacios totales</div>
         </div>
-        <div class="kpi"><div class="num" id="cwDisponibles">5</div><div class="label">Espacios disponibles</div></div>
-        <div class="kpi"><div class="num" id="cwPostulantes">70</div><div class="label">Postulantes totales</div></div>
-        <div class="kpi"><div class="num" id="cwProyectos">39</div><div class="label">Proyectos recibidos</div></div>
-        <div class="kpi coral"><div class="num" id="cwEntrevistados">35</div><div class="label">Entrevistados</div></div>
+        <div class="kpi"><div class="num" id="cwDisponibles">—</div><div class="label">Espacios disponibles</div></div>
+        <div class="kpi"><div class="num" id="cwPostulantes">—</div><div class="label">Postulantes totales</div></div>
+        <div class="kpi"><div class="num" id="cwProyectos">—</div><div class="label">Proyectos recibidos</div></div>
+        <div class="kpi coral"><div class="num" id="cwEntrevistados">—</div><div class="label">Entrevistados</div></div>
       </div>
       <p style="font-size:11.5px;color:var(--slate-light);margin:8px 0 0;">
-        Estos 5 números son manuales — actualizalos vos directamente en este archivo si cambian (buscá "cwEspacios" en el código).
+        Estos números se toman en vivo de la pestaña «Resumen Ejecutivo» de la planilla de Coworking.
       </p>      <div class="panel">
         <h3>Relevamiento de infraestructura, equipamiento y logística</h3>
         <div id="infraResumen" style="margin-bottom:18px;"></div>
@@ -630,7 +630,7 @@ const SHEETS = {
   jornadas: '1-HqzeU7FO8qAsDrxfYty7q-9VjG2rl7nDKPuySL-inw',
   jornadas2025: '1jU0pBxX_qMQLdzfR9S1iMUSLM211TWXYXVScqAKbJ9U',
   fotoproducto: '1DNrZGK9aHyyaKKyYoxAoC0wWscLhM89ax_q6FHxLFlk',
-  coworking: '1B-oXvbFaXfjdvNnXp0VeqDIzNB57bvy_',
+  coworking: '1XRExmYCAbUEQ4Kzgme_d0ES_dRayMSt31mPJu0aKz8Q',
   nivel2: '1Yphv3dg5X3LaMrn3zjBrEOpUogKuKF8H7T3cbjG34Mc'
 };
 const GATE_PASSCODE = 'fipe2026'; // cambiá esta clave antes de compartir el link con el equipo
@@ -941,20 +941,57 @@ function parseInfraestructura(sheet){
   return out;
 }
 
+/* Los 5 indicadores de Coworking: cada número está en la celda de abajo de su título */
+function parseCwResumen(sheet){
+  const {rows} = sheet;
+  const etiquetas = {
+    cwEspacios: 'Total de Espacios',
+    cwDisponibles: 'Espacios Disponibles',
+    cwPostulantes: 'Total Postulantes',
+    cwProyectos: 'Proyectos Recibidos',
+    cwEntrevistados: 'Emprendedores entrevistados'
+  };
+  const out = {};
+  Object.entries(etiquetas).forEach(([id, label])=>{
+    const pos = findCell(rows, label, true);
+    if(!pos) return;
+    for(let r = pos.r + 1; r < Math.min(rows.length, pos.r + 4); r++){
+      const v = (rows[r] && rows[r][pos.c] !== undefined) ? rows[r][pos.c].toString().trim() : '';
+      if(v !== ''){ out[id] = v; break; }
+    }
+  });
+  return out;
+}
+
 async function loadAll(manual){
   document.getElementById('loadingBox').style.display='block';
   document.getElementById('errBox').innerHTML='';
   try{
-    const [base2026Sheet, base2025Sheet, jorn2026Sheet, jorn2025Sheet, foto2026Sheet, foto2025Sheet, infraSheet, nivel2Sheet] = await Promise.all([
-      fetchSheet(SHEETS.base2026, 'handleBase2026'),
-      fetchSheet(SHEETS.base2025, 'handleBase2025'),
-      fetchSheet(SHEETS.jornadas, 'handleJorn2026'),
-      fetchSheet(SHEETS.jornadas2025, 'handleJorn2025'),
-      fetchSheet(SHEETS.fotoproducto, 'handleFoto2026', 'Fotoproducto 2026'),
-      fetchSheet(SHEETS.fotoproducto, 'handleFoto2025', 'Fotoproducto 2025'),
-      fetchSheet(SHEETS.coworking, 'handleInfra', 'Infraestructura y Horarios', true),
-      fetchSheet(SHEETS.nivel2, 'handleNivel2')
-    ]);
+    // Cada planilla se carga por separado: si una falla, las demás se muestran igual
+    const fuentes = [
+      ['Base 2026',               ()=>fetchSheet(SHEETS.base2026, 'handleBase2026')],
+      ['Base 2025',               ()=>fetchSheet(SHEETS.base2025, 'handleBase2025')],
+      ['Jornadas 2026',           ()=>fetchSheet(SHEETS.jornadas, 'handleJorn2026')],
+      ['Jornadas 2025',           ()=>fetchSheet(SHEETS.jornadas2025, 'handleJorn2025')],
+      ['Fotoproducto 2026',       ()=>fetchSheet(SHEETS.fotoproducto, 'handleFoto2026', 'Fotoproducto 2026')],
+      ['Fotoproducto 2025',       ()=>fetchSheet(SHEETS.fotoproducto, 'handleFoto2025', 'Fotoproducto 2025')],
+      ['Coworking (infraestructura)', ()=>fetchSheet(SHEETS.coworking, 'handleInfra', 'Infraestructura y Horarios', true)],
+      ['Nivel II',                ()=>fetchSheet(SHEETS.nivel2, 'handleNivel2')],
+      ['Coworking (resumen)',     ()=>fetchSheet(SHEETS.coworking, 'handleCwResumen', 'Resumen Ejecutivo', true)]
+    ];
+    const resultados = await Promise.allSettled(fuentes.map(([,fn])=>fn()));
+    const vacia = {cols:[], rows:[]};
+    const fallas = [];
+    const [base2026Sheet, base2025Sheet, jorn2026Sheet, jorn2025Sheet, foto2026Sheet, foto2025Sheet, infraSheet, nivel2Sheet, cwResumenSheet] =
+      resultados.map((r,i)=>{
+        if(r.status==='fulfilled') return r.value;
+        fallas.push(fuentes[i][0]);
+        return vacia;
+      });
+    if(fallas.length === fuentes.length) throw new Error('No se pudo conectar con ninguna planilla. Revisá tu conexión o los permisos de Google Sheets.');
+    if(fallas.length){
+      document.getElementById('errBox').innerHTML = `<div class="errbox"><b>Algunas planillas no cargaron:</b> ${fallas.join(', ')}.<br>El resto del tablero muestra datos actualizados. Revisá que esas planillas existan y tengan permiso "Cualquier usuario con el enlace puede ver".</div>`;
+    }
     DATA.base = [
       ...parseBase(base2026Sheet, '2026'),
       ...parseBase(base2025Sheet, '2025'),
@@ -969,6 +1006,7 @@ async function loadAll(manual){
       ...parseFotoproducto(foto2025Sheet, '2025')
     ];
     DATA.infra = parseInfraestructura(infraSheet);
+    DATA.cwResumen = parseCwResumen(cwResumenSheet);
     document.getElementById('loadingBox').style.display='none';
     document.getElementById('ts').textContent = 'Actualizado ' + new Date().toLocaleTimeString('es-AR',{hour:'2-digit',minute:'2-digit'});
     renderAll();
@@ -1350,6 +1388,10 @@ function fotoFiltered(){
 let fotoPage = 1;
 
 function renderCoworking(){
+  const cw = DATA.cwResumen || {};
+  ['cwEspacios','cwDisponibles','cwPostulantes','cwProyectos','cwEntrevistados'].forEach(id=>{
+    document.getElementById(id).textContent = cw[id] !== undefined ? cw[id] : '—';
+  });
   const estadoColor = e=>{
     const s = e.toLowerCase();
     if(s.includes('disponible') || s.includes('funcionamiento')) return 'green';
