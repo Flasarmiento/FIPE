@@ -651,23 +651,37 @@ function tryGate(){
 document.getElementById('gateInput').addEventListener('keydown', e=>{ if(e.key==='Enter') tryGate(); });
 
 /* ============ GVIZ FETCH ============ */
-function fetchSheet(sheetId, handlerName, sheetName, rawHeaders){
+/* opts (opcional): { headers: número de filas de encabezado, range: 'A5:K200' }
+   OJO: "headers" y "range" son parámetros de la URL (&headers=1), NO van dentro de tqx.
+   Usar un rango acotado evita que Google descarte números en columnas que mezclan texto y números. */
+function fetchSheet(sheetId, handlerName, sheetName, opts){
+  opts = opts || {};
   return new Promise((resolve, reject)=>{
+    let done = false;
+    const script = document.createElement('script');
+    const timer = setTimeout(()=> finish(new Error('Tiempo de espera agotado al conectar con Google Sheets.')), 12000);
+    function finish(err, result){
+      if(done) return;
+      done = true;
+      clearTimeout(timer);
+      delete window[handlerName];
+      script.remove();
+      if(err) reject(err); else resolve(result);
+    }
     window[handlerName] = (json)=>{
       try{
+        if(json.status === 'error') throw new Error((json.errors||[]).map(e=>e.detailed_message||e.message).join('; ') || 'Error de Google Sheets');
         const cols = json.table.cols.map(c => (c.label||'').trim());
         const rows = json.table.rows.map(r => r.c.map(c => c ? (c.v!==null && c.v!==undefined ? c.v : (c.f||'')) : ''));
-        resolve({cols, rows});
-      }catch(e){ reject(e); }
-      delete window[handlerName];
+        finish(null, {cols, rows});
+      }catch(e){ finish(e); }
     };
     const sheetParam = sheetName ? `&sheet=${encodeURIComponent(sheetName)}` : '';
-    const headersParam = rawHeaders ? ';headers:0' : '';
-    const script = document.createElement('script');
-    script.src = `https://docs.google.com/spreadsheets/d/${sheetId}/gviz/tq?tqx=out:json;responseHandler:${handlerName}${headersParam}${sheetParam}`;
-    script.onerror = ()=> reject(new Error('No se pudo conectar con la planilla. Revisá que el link tenga permiso "Cualquier usuario con el enlace puede ver".'));
+    const headersParam = (opts.headers !== undefined) ? `&headers=${opts.headers}` : '';
+    const rangeParam = opts.range ? `&range=${encodeURIComponent(opts.range)}` : '';
+    script.src = `https://docs.google.com/spreadsheets/d/${sheetId}/gviz/tq?tqx=out:json;responseHandler:${handlerName}${sheetParam}${headersParam}${rangeParam}&nocache=${Date.now()}`;
+    script.onerror = ()=> finish(new Error('No se pudo conectar con la planilla. Revisá que el link tenga permiso "Cualquier usuario con el enlace puede ver".'));
     document.body.appendChild(script);
-    setTimeout(()=> reject(new Error('Tiempo de espera agotado al conectar con Google Sheets.')), 12000);
   });
 }
 
@@ -966,19 +980,32 @@ function findCell(rows, text, fuzzy){
 }
 
 function parseInfraestructura(sheet){
-  const {rows} = sheet;
-  const headerPos = findCell(rows, 'Sede');
+  const {cols, rows} = sheet;
   const out = [];
-  if(!headerPos) return out;
-  const headerRow = rows[headerPos.r].map(c=>(c||'').toString().trim().toLowerCase());
+  // Caso normal: se pidió el rango desde la fila de encabezados (A5:K…), así que
+  // los títulos vienen en "cols" y los datos en "rows".
+  let headerRow, dataStart, colSede;
+  const colsNorm = (cols||[]).map(normalizeCell);
+  if(colsNorm.includes('sede')){
+    headerRow = colsNorm;
+    dataStart = 0;
+    colSede = colsNorm.indexOf('sede');
+  } else {
+    // Respaldo: buscar la fila "Sede" dentro de los datos
+    const headerPos = findCell(rows, 'Sede');
+    if(!headerPos) return out;
+    headerRow = rows[headerPos.r].map(normalizeCell);
+    dataStart = headerPos.r + 1;
+    colSede = headerPos.c;
+  }
   const colOf = (label)=> headerRow.findIndex(c=>c===label.toLowerCase());
-  const colSede = headerPos.c;
   const colUbicacion = colOf('ubicación');
-  const colEspecialidad = colOf('especialidad coworking');
+  let colEspecialidad = colOf('especialidad coworking');
+  if(colEspecialidad === -1) colEspecialidad = headerRow.findIndex(c=>c.includes('especialidad'));
   const colTurno = colOf('turno');
   const colEstado = colOf('estado');
   const colTutor = headerRow.findIndex(c=>c.includes('tutor'));
-  for(let r=headerPos.r+1; r<rows.length; r++){
+  for(let r=dataStart; r<rows.length; r++){
     const sede = (rows[r][colSede]||'').toString().trim();
     const especialidad = (rows[r][colEspecialidad]||'').toString().trim();
     if(!sede && !especialidad) continue; // hueco en la planilla, seguimos escaneando
@@ -1005,6 +1032,22 @@ function parseCwResumen(sheet){
     cwEntrevistados: 'Emprendedores entrevistados'
   };
   const out = {};
+  // Caso normal: se pidió el rango B7:J8 con 1 fila de encabezado → títulos en "cols", números en rows[0]
+  const colsNorm = (sheet.cols||[]).map(normalizeCell);
+  if(rows.length && colsNorm.some(c=>c)){
+    Object.entries(etiquetas).forEach(([id, label])=>{
+      const t = normalizeCell(label);
+      let i = colsNorm.indexOf(t);
+      if(i === -1) i = colsNorm.findIndex(c => c && (c.includes(t) || t.includes(c)));
+      if(i === -1) return;
+      for(const row of rows){
+        const v = (row[i] ?? '').toString().trim();
+        if(v !== ''){ out[id] = Number.isFinite(Number(v)) ? Number(v).toLocaleString('es-AR') : v; break; }
+      }
+    });
+    if(Object.keys(out).length) return out;
+  }
+  // Respaldo: buscar la etiqueta en cualquier celda y tomar el valor de abajo
   Object.entries(etiquetas).forEach(([id, label])=>{
     const pos = findCell(rows, label, true);
     if(!pos) return;
@@ -1028,9 +1071,9 @@ async function loadAll(manual){
       ['Jornadas 2025',           ()=>fetchSheet(SHEETS.jornadas2025, 'handleJorn2025')],
       ['Fotoproducto 2026',       ()=>fetchSheet(SHEETS.fotoproducto, 'handleFoto2026', 'Fotoproducto 2026')],
       ['Fotoproducto 2025',       ()=>fetchSheet(SHEETS.fotoproducto, 'handleFoto2025', 'Fotoproducto 2025')],
-      ['Coworking (infraestructura)', ()=>fetchSheet(SHEETS.coworking, 'handleInfra', 'Infraestructura y Horarios', true)],
+      ['Coworking (infraestructura)', ()=>fetchSheet(SHEETS.coworking, 'handleInfra', 'Infraestructura y Horarios', {headers:1, range:'A5:K200'})],
       ['Nivel II',                ()=>fetchSheet(SHEETS.nivel2, 'handleNivel2')],
-      ['Coworking (resumen)',     ()=>fetchSheet(SHEETS.coworking, 'handleCwResumen', 'Resumen Ejecutivo', true)]
+      ['Coworking (resumen)',     ()=>fetchSheet(SHEETS.coworking, 'handleCwResumen', 'Resumen Ejecutivo', {headers:1, range:'B7:J8'})]
     ];
     const resultados = await Promise.allSettled(fuentes.map(([,fn])=>fn()));
     const vacia = {cols:[], rows:[]};
